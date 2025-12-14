@@ -27,6 +27,20 @@ def is_horiz(dir):
 		return True
 	return False
 
+
+def do_work_parallel(func_factory, max_drones, n_task):
+	task_ix = 0
+	while task_ix < n_task:
+		drones = []
+		n_task_in_cycle = min(n_task - task_ix, max_drones)
+		for i in range(n_task_in_cycle-1):
+			drones.append(spawn_drone(func_factory(task_ix+i+1)))
+		func_factory(task_ix)()
+		for d in drones:
+			wait_for(d)
+		task_ix += n_task_in_cycle
+
+
 def move_n(dir, n):
 	if n>map_size/2:
 		dir = opp_dir(dir)
@@ -157,106 +171,117 @@ def sort_cacti(x0, y0, ww, hh):
 	for i in range(hh):
 		sort(East, ww)
 		move(North)
-        
+		
 def sort_cacti_h_v(x0, y0, n, horiz):
-    move_to(x0, y0)
-    if horiz:
-        sort(East, n)
-    else:
-        sort(North, n)
+	move_to(x0, y0)
+	if horiz:
+		sort(East, n)
+	else:
+		sort(North, n)
 
 def sort_parellel_func(x,y,size,i, horiz):
-    sort_cacti_h_v(x+i, y, size, horiz)
-    sort_cacti_h_v(x, y+i, size, horiz)
+	if not horiz:
+		sort_cacti_h_v(x+i, y, size, horiz)
+	else:
+		sort_cacti_h_v(x, y+i, size, horiz)
 
-def sort_cacti_parallel_square_(x, y, size, horiz):
-    drones = []
-    for i in range(size-1):
-        def f():
-            sort_parellel_func(x, y, size, i+1, horiz)
-        drones.append(spawn_drone(f))
-    sort_parellel_func(x, y, size, 0, horiz)
-    for i in range(size-1):
-        wait_for(drones[i])
+def sort_cacti_parallel_square_(x, y, size, horiz, max_drones):
+	def work_factory(ix):
+		def f():
+			move_to(x,y+ix)
+			sort_parellel_func(x, y, size, ix, horiz)
+		return f
+	do_work_parallel(work_factory, max_drones, size)
+	
 
-def sort_cacti_parallel_square(x, y, size):
-    sort_cacti_parallel_square_(x, y, size, False)
-    sort_cacti_parallel_square_(x, y, size, True)
+def sort_cacti_parallel_square(x, y, size, max_drones):
+	sort_cacti_parallel_square_(x, y, size, False, max_drones)
+	sort_cacti_parallel_square_(x, y, size, True, max_drones)
 		
 def harvest_cacti(x,y,w,h):
 	sort_cacti(x, y, w, h)
 	move_to(x, y)
 	harvest()
-    
-def harvest_cacti_parallel(x, y, size):
-    sort_cacti_parallel_square(x, y, size)
-    harvest()
+	
+def harvest_cacti_parallel(x, y, size, max_drones):
+	sort_cacti_parallel_square(x, y, size, max_drones)
+	harvest()
 
 def till_whole(g):
-    till_rect(g, 0, 0, w, h)
+	till_rect(g, 0, 0, w, h)
 
 def do_whole_cacti():
-    move_to(0,0)
-    plant_2d(Entities.Cactus, w, h)
-    harvest_cacti(0, 0, w, h)
+	move_to(0,0)
+	plant_2d(Entities.Cactus, w, h)
+	harvest_cacti(0, 0, w, h)
+		
+def plant_parallel(x,y,rows,cols, item = Entities.Cactus, max_drones = 32):
+	def work_factory(ix):
+		def f():
+			move_to(x,y+ix)
+			plant_n(item, East, cols, False)
+		return f
+	do_work_parallel(work_factory, max_drones, rows)
+	
+def harvest_parallel(x,y,rows,cols, item = Entities.Cactus, max_drones = 32):
+	def work_factory(ix):
+		def f():
+			move_to(x,y+ix)
+			harv_n(East, cols, False)
+		return f
+	do_work_parallel(work_factory, max_drones, rows)
 
-def plant_parallel(x,y,rows,cols, item = Entities.Cactus):
-    drones = []
-    for i in range(rows-1):
-        def f():
-            move_to(x,y+i+1)
-            plant_n(item, East, cols, False)
-        drones.append(spawn_drone(f))
-    move_to(x,y)
-    plant_n(item, East, cols, False)
-    for i in range(rows-1):
-        wait_for(drones[i])
-
-def do_whole_cacti_parallel():
-    move_to(0,0)
-    #plant_2d(Entities.Cactus, w, h)
-    plant_parallel(0, 0, w, h, Entities.Cactus)
-    harvest_cacti_parallel(0, 0, w)
+def do_whole_cacti_parallel(max_drones = 32):
+	move_to(0,0)
+	plant_parallel(0, 0, w, h, Entities.Cactus, max_drones)
+	harvest_cacti_parallel(0, 0, w, max_drones)
+	
+def do_square_cacti_parallel(s, max_drones = 32):
+	move_to(0,0)
+	plant_parallel(0, 0, s, s, Entities.Cactus, max_drones)
+	harvest_cacti_parallel(0, 0, s, max_drones)
 
 def repeat_row_plant(y, size, soil_item, grass_item):
-    move_to(0, y)
-    while(True):
-        for i in range(size):
-            if can_harvest():
-                harvest()
-            else:
-                do_a_flip()
-                harvest()
-            item = grass_item
-            if get_ground_type() == Grounds.Soil:
-                item = soil_item
-            plant(item)
-            move(East)
-    
-def do_till_parallel():
-    clear()
-    size = get_world_size()
-    drones = []
-    for i in range(size-1):
-        def f():
-            till_rect(Grounds.Soil, 0, i, size, 1)
-        drones.append(spawn_drone(f))
-    till_rect(Grounds.Soil, 0, size-1, size, 1)
-    for d in drones:
-        wait_for(d)
-    
+	move_to(0, y)
+	while(True):
+		for i in range(size):
+			if can_harvest():
+				harvest()
+			else:
+				do_a_flip()
+				harvest()
+			item = grass_item
+			if get_ground_type() == Grounds.Soil:
+				item = soil_item
+			if item != Entities.Grass:
+				plant(item)
+			move(East)
+
+def do_till_parallel(max_drones = 1, bottom_row = 0, width = get_world_size(), height = get_world_size()):
+	clear()
+	
+	row = bottom_row
+	remaining_rows = height
+	
+	def work_factory(ix):
+		def f():
+			till_rect(Grounds.Soil, 0, bottom_row+ix, width, 1)
+		return f
+	
+	do_work_parallel(work_factory, max_drones, height)
+
 
 def do_parallel_simple_harv_plant(soil_item = Entities.Carrot, grass_item = Entities.Tree, size = get_world_size()):
-    #do_till_parallel()
-    drones = []
-    def soil_item_from_row_ix(ix):
-        return soil_item
-        
-    def grass_item_from_row_ix(ix):    
-        return grass_item
-        
-    for i in range(size-1):
-        def f():
-            repeat_row_plant(i, size, soil_item_from_row_ix(i), grass_item_from_row_ix(i))
-        drones.append(spawn_drone(f))
-    repeat_row_plant(size-1, size, soil_item_from_row_ix(size-1), grass_item_from_row_ix(size-1))
+	#do_till_parallel()
+	drones = []
+	def soil_item_from_row_ix(ix):
+		return soil_item
+		
+	def grass_item_from_row_ix(ix):    
+		return grass_item
+		
+	for i in range(size-1):
+		def f():
+			repeat_row_plant(i, size, soil_item_from_row_ix(i), grass_item_from_row_ix(i))
+		drones.append(spawn_drone(f))
+	repeat_row_plant(size-1, size, soil_item_from_row_ix(size-1), grass_item_from_row_ix(size-1))
